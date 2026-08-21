@@ -1,0 +1,175 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// SQLite has no native enum type, so these are stored as strings and
+// constrained by the TypeScript union types in src/lib/types.ts:
+// RoomStatus: "PENDING" | "APPROVED" | "REJECTED"
+// ReactionType: "AGAIN" | "FUN" | "INTERESTING"
+// ReportStatus: "OPEN" | "REVIEWED" | "DISMISSED"
+
+model User {
+  id                Int      @id @default(autoincrement())
+  email             String   @unique
+  passwordHash      String
+  name              String
+  headline          String   @default("")
+  avatarInitial     String
+  avatarColor       String   @default("amber")
+  offlineMeetCount  Int      @default(0)
+  isAdmin           Boolean  @default(false)
+  createdAt         DateTime @default(now())
+
+  interests         UserThemeInterest[]
+  roomsCreated      Room[]               @relation("RoomCreator")
+  memberships       RoomMembership[]
+  messages          Message[]
+  recruitPosts      RecruitPost[]        @relation("RecruitCreator")
+  participations    RecruitParticipant[]
+  reactionsGiven    Reaction[]           @relation("ReactionFrom")
+  reactionsReceived Reaction[]           @relation("ReactionTo")
+  reportsFiled      Report[]             @relation("ReportsFiled")
+  reportsReceived   Report[]             @relation("ReportsReceived")
+}
+
+model Theme {
+  id           Int    @id @default(autoincrement())
+  slug         String @unique
+  name         String
+  icon         String
+  accentColor  String @default("amber")
+  sortOrder    Int    @default(0)
+
+  rooms           Room[]
+  interestedUsers UserThemeInterest[]
+}
+
+model UserThemeInterest {
+  userId  Int
+  themeId Int
+  user    User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  theme   Theme @relation(fields: [themeId], references: [id], onDelete: Cascade)
+
+  @@id([userId, themeId])
+}
+
+model Room {
+  id          Int        @id @default(autoincrement())
+  themeId     Int
+  name        String
+  description String     @default("")
+  createdById Int
+  status      String     @default("PENDING")
+  createdAt   DateTime   @default(now())
+
+  theme        Theme                @relation(fields: [themeId], references: [id])
+  createdBy    User                 @relation("RoomCreator", fields: [createdById], references: [id])
+  memberships  RoomMembership[]
+  messages     Message[]
+  recruitPosts RecruitPost[]
+  summary      ChatSummary?
+  reports      Report[]
+}
+
+model RoomMembership {
+  id       Int      @id @default(autoincrement())
+  userId   Int
+  roomId   Int
+  joinedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roomId])
+}
+
+model Message {
+  id        Int      @id @default(autoincrement())
+  roomId    Int
+  userId    Int
+  text      String
+  createdAt DateTime @default(now())
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Cached AI-generated topic summary for a room's recent chat.
+model ChatSummary {
+  id        Int      @id @default(autoincrement())
+  roomId    Int      @unique
+  points    String // JSON-encoded string[]
+  updatedAt DateTime @updatedAt
+
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+}
+
+model RecruitPost {
+  id               Int      @id @default(autoincrement())
+  roomId           Int
+  createdById      Int
+  title            String
+  scheduledAt      DateTime
+  capacity         Int
+  offlineMeet      Boolean  @default(false)
+  guidelineAgreed  Boolean  @default(false)
+  createdAt        DateTime @default(now())
+
+  room         Room                 @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  createdBy    User                 @relation("RecruitCreator", fields: [createdById], references: [id])
+  participants RecruitParticipant[]
+  reports      Report[]
+}
+
+model RecruitParticipant {
+  id            Int      @id @default(autoincrement())
+  recruitPostId Int
+  userId        Int
+  joinedAt      DateTime @default(now())
+
+  recruitPost RecruitPost @relation(fields: [recruitPostId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([recruitPostId, userId])
+}
+
+model Reaction {
+  id            Int          @id @default(autoincrement())
+  fromUserId    Int
+  toUserId      Int
+  type          String
+  // 0 = プロフィールへの一般的なリアクション。特定の募集に紐づく場合はその RecruitPost.id。
+  // SQLite の複合ユニーク制約は NULL を「毎回別の値」として扱うため、NULL の代わりに
+  // 0 をセンチネル値として使い、同じ相手への重複リアクションを確実に防ぐ。
+  recruitPostId Int          @default(0)
+  createdAt     DateTime     @default(now())
+
+  fromUser User @relation("ReactionFrom", fields: [fromUserId], references: [id], onDelete: Cascade)
+  toUser   User @relation("ReactionTo", fields: [toUserId], references: [id], onDelete: Cascade)
+
+  @@unique([fromUserId, toUserId, recruitPostId, type])
+}
+
+model Report {
+  id            Int          @id @default(autoincrement())
+  reporterId    Int
+  targetUserId  Int
+  roomId        Int?
+  recruitPostId Int?
+  reason        String
+  status        String       @default("OPEN")
+  createdAt     DateTime     @default(now())
+
+  reporter    User         @relation("ReportsFiled", fields: [reporterId], references: [id], onDelete: Cascade)
+  targetUser  User         @relation("ReportsReceived", fields: [targetUserId], references: [id], onDelete: Cascade)
+  room        Room?        @relation(fields: [roomId], references: [id])
+  recruitPost RecruitPost? @relation(fields: [recruitPostId], references: [id])
+}
