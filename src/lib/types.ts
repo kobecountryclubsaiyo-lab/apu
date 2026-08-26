@@ -1,5 +1,6 @@
-// SQLite has no native enum type (see prisma/schema.prisma), so these
-// string unions are the source of truth for values stored in String columns.
+// These are stored as plain strings, not native Prisma enums (see
+// prisma/schema.prisma), so these string unions are the source of truth
+// for values stored in String columns.
 
 export type RoomStatus = "PENDING" | "APPROVED" | "REJECTED";
 

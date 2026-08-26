@@ -9,17 +9,20 @@
 |---|---|---|
 | フレームワーク | Next.js 14 (App Router) + TypeScript | フロント・API・SSRを1つのプロジェクトで完結でき、プロトタイプのReact/Tailwindコードをほぼそのまま活かせる |
 | スタイリング | Tailwind CSS | プロトタイプが最初からTailwindクラスで書かれていたため |
-| DB / ORM | SQLite + Prisma | セットアップ不要でこのまま動かせる。将来 Postgres 等に切り替える場合も `prisma/schema.prisma` の `datasource` を変えるだけ |
+| DB / ORM | PostgreSQL + Prisma | Vercel Postgres・Neon・Supabase・Railway など主要ホスティング先がすべて対応しており、本番想定でそのまま使える |
 | 認証 | 自前実装（bcryptjs + jose製JWTのCookieセッション） | 外部OAuthプロバイダを増やさず、最小構成でログイン機能を用意 |
 | AIによる話題整理 | Anthropic API（`@anthropic-ai/sdk`）、未設定時はキーワード頻度によるヒューリスティックにフォールバック | `ANTHROPIC_API_KEY` の有無だけで開発中でも本番相当でも動く |
 
-## セットアップ
+## セットアップ（ローカル開発）
+
+Postgresが手元にない場合は `docker compose up -d` でローカル用のPostgresが起動します（`.env.example` の接続先と一致）。
 
 ```bash
+docker compose up -d    # ローカルPostgresを起動（Dockerがない場合は各自用意したDBのURLを.envに設定）
 npm install
-cp .env.example .env   # 必要なら SESSION_SECRET / ANTHROPIC_API_KEY を編集
-npx prisma migrate dev # 初回のみ（DBは prisma/dev.db に作成される）
-npm run db:seed        # デモ用のテーマ・部屋・ユーザーを投入
+cp .env.example .env    # 必要なら SESSION_SECRET / ANTHROPIC_API_KEY を編集
+npx prisma migrate dev  # 初回のみ：テーブルを作成
+npm run db:seed         # デモ用のテーマ・部屋・ユーザーを投入
 npm run dev
 ```
 
@@ -63,9 +66,25 @@ docs/
   original-prototypes/      # 元のReactプロトタイプ（実装前の見た目の参照用）
 ```
 
+## 本番デプロイ（Vercel + Neon を例に）
+
+このアプリはどのNext.js対応ホスティングでも動きますが、無料枠で最短で公開できる組み合わせとして Vercel（アプリ本体）+ Neon（Postgres）を例に手順を示します。
+
+1. **DBを用意する**: [Neon](https://neon.tech) でプロジェクトを作成し、接続文字列（`postgresql://...`）を控える（Vercel Postgres・Supabase・Railway 等でも同様の手順）
+2. **Vercelにプロジェクトを作成**: このGitHubリポジトリをインポートする
+3. **環境変数を設定**（Vercelのプロジェクト設定 → Environment Variables）
+   - `DATABASE_URL` … 手順1の接続文字列
+   - `SESSION_SECRET` … `openssl rand -base64 32` などで生成したランダムな文字列
+   - `ANTHROPIC_API_KEY` … AIによる話題整理を有効にする場合のみ
+4. **ビルドコマンドを変更**（Project Settings → Build & Development Settings → Build Command）
+   - `prisma migrate deploy && next build` に変更する（初回デプロイ時にマイグレーションを本番DBへ適用するため。`package.json` の `vercel-build` スクリプトと同じ内容）
+5. **デプロイ** → 初回のみ、ローカルから本番DBに向けて `npm run db:seed`（`.env` の `DATABASE_URL` を本番のものに一時的に差し替えて実行）し、テーマなどの初期データを投入する
+
+以降の変更は、mainブランチにマージ→Vercelが自動でビルド・マイグレーション適用・デプロイまで行います。
+
 ## 今後の検討事項（未着手）
 
 - 通報・ブロック画面のUI（APIのみ実装済み）
 - 本人確認（仕様書5章：オフ会専用機能を作る場合に再検討）
 - リアルタイム性の強化（現状はチャットをポーリングで取得。WebSocket化は将来の拡張）
-- 本番デプロイ時のDB移行（SQLite → Postgres等）とセッションシークレットの管理
+- 独自ドメインの設定、メール送信（パスワードリセット等）、監視・エラートラッキングの導入

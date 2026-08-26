@@ -6,12 +6,13 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-// SQLite has no native enum type, so these are stored as strings and
-// constrained by the TypeScript union types in src/lib/types.ts:
+// Kept as plain strings (not native Prisma enums) for portability across
+// database engines, and constrained by the TypeScript union types in
+// src/lib/types.ts:
 // RoomStatus: "PENDING" | "APPROVED" | "REJECTED"
 // ReactionType: "AGAIN" | "FUN" | "INTERESTING"
 // ReportStatus: "OPEN" | "REVIEWED" | "DISMISSED"
@@ -147,8 +148,8 @@ model Reaction {
   toUserId      Int
   type          String
   // 0 = プロフィールへの一般的なリアクション。特定の募集に紐づく場合はその RecruitPost.id。
-  // SQLite の複合ユニーク制約は NULL を「毎回別の値」として扱うため、NULL の代わりに
-  // 0 をセンチネル値として使い、同じ相手への重複リアクションを確実に防ぐ。
+  // SQL の複合ユニーク制約は NULL を「毎回別の値」として扱う（どのDBエンジンでも同様）ため、
+  // NULL の代わりに 0 をセンチネル値として使い、同じ相手への重複リアクションを確実に防ぐ。
   recruitPostId Int          @default(0)
   createdAt     DateTime     @default(now())
 
