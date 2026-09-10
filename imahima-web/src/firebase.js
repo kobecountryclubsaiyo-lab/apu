@@ -1,4 +1,5 @@
 import { initializeApp } from "firebase/app";
+import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
 import {
   getFirestore,
   doc,
@@ -26,9 +27,19 @@ const firebaseConfig = {
 // ▲▲▲ ここまで ▲▲▲
 
 const app = initializeApp(firebaseConfig);
+export const auth = getAuth(app);
 export const db = getFirestore(app);
 
-// presence コレクション: ドキュメントIDは `${roomCode}_${userId}`
+// 匿名認証: ログイン画面なしで自動的にサインインされる。
+// これにより「自分のpresence/invitesは自分にしか書き換え・削除できない」をFirestoreルール側で保証できる
+// (サンプルの友達を置く機能だけは特別に、doc IDが `_demo-` を含むものに限り許可する)。
+signInAnonymously(auth).catch(() => {
+  // 失敗した場合はApp.jsx側のタイムアウト処理でエラーバナーが出る
+});
+
+export { onAuthStateChanged };
+
+// presence コレクション: ドキュメントIDは `${roomCode}_${userId}`(userIdはFirebase匿名認証のuid、またはサンプル用の固定ID)
 const presenceDocRef = (roomCode, userId) => doc(db, "presence", `${roomCode}_${userId}`);
 
 export async function getMyPresence(roomCode, userId) {
@@ -43,13 +54,19 @@ export async function getMyPresence(roomCode, userId) {
 export async function setPresence(roomCode, userId, data) {
   try {
     await setDoc(presenceDocRef(roomCode, userId), { ...data, roomCode, userId });
-  } catch (e) {}
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
 
 export async function deletePresence(roomCode, userId) {
   try {
     await deleteDoc(presenceDocRef(roomCode, userId));
-  } catch (e) {}
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
 
 export async function listPresence(roomCode) {

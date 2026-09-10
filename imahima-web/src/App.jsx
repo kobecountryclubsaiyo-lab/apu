@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { Map as MapIcon, List, X, Send, Users, Clock, RefreshCw, Pencil, MapPin, Copy, Bell, Check } from "lucide-react";
+import { Map as MapIcon, List, X, Send, Users, Clock, RefreshCw, Pencil, MapPin, Copy, Bell, Check, WifiOff } from "lucide-react";
 import {
+  auth,
+  onAuthStateChanged,
+  getMyPresence,
   setPresence,
   deletePresence,
   listPresence,
@@ -26,6 +29,7 @@ const MOVE_THRESHOLD_M = 15; // GPSの揺れを無視する閾値
 const HEARTBEAT_MS = 20000;
 const POLL_MS = 10000;
 const ME_KEY = "imahima-me";
+const AUTH_TIMEOUT_MS = 8000;
 
 function haversineM(lat1, lon1, lat2, lon2) {
   const R = 6371000;
@@ -49,14 +53,6 @@ function fmtAgo(ts) {
   const min = Math.floor((Date.now() - ts) / 60000);
   if (min < 1) return "たった今";
   return `${min}分前`;
-}
-
-function genId() {
-  try {
-    return crypto.randomUUID();
-  } catch (e) {
-    return "u-" + Math.random().toString(36).slice(2, 11);
-  }
 }
 
 const ROOM_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // 0/O, 1/I抜き
@@ -83,7 +79,9 @@ function persistMe(nextMe) {
 
 export default function App() {
   const [meLoaded, setMeLoaded] = useState(false);
-  const [me, setMe] = useState(null); // { userId, name, avatar, color, roomCode }
+  const [me, setMe] = useState(null); // { name, avatar, color, roomCode } ※userIdはFirebase匿名認証のuidを別途使う
+  const [authState, setAuthState] = useState("pending"); // pending | ready | failed
+  const [firebaseUid, setFirebaseUid] = useState(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [draftName, setDraftName] = useState("");
@@ -98,6 +96,7 @@ export default function App() {
   const [selfCoords, setSelfCoords] = useState(null);
   const [message, setMessage] = useState("");
   const [lastActivityAt, setLastActivityAt] = useState(null);
+  const [isOnline, setIsOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
 
   const [view, setView] = useState("list");
   const [friends, setFriends] = useState([]);
@@ -115,21 +114,63 @@ export default function App() {
   const lastMoveCoordsRef = useRef(null);
   const selfCoordsRef = useRef(null);
   const messageRef = useRef("");
-  const meRef = useRef(null);
+  const meRef = useRef(null); // { name, avatar, color, roomCode, userId } 実行時に合成
   const himaRef = useRef(false);
+  const resumeCheckedRef = useRef(false);
 
   useEffect(() => { selfCoordsRef.current = selfCoords; }, [selfCoords]);
   useEffect(() => { messageRef.current = message; }, [message]);
-  useEffect(() => { meRef.current = me; }, [me]);
   useEffect(() => { himaRef.current = hima; }, [hima]);
+  useEffect(() => {
+    meRef.current = me && firebaseUid ? { ...me, userId: firebaseUid } : null;
+  }, [me, firebaseUid]);
 
-  // load / create identity (plain localStorage, no account needed)
+  // Firebase匿名認証の状態を監視
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        setFirebaseUid(user.uid);
+        setAuthState("ready");
+      }
+    });
+    const t = setTimeout(() => {
+      setAuthState((s) => (s === "pending" ? "failed" : s));
+    }, AUTH_TIMEOUT_MS);
+    return () => { unsub(); clearTimeout(t); };
+  }, []);
+
+  // プロフィール(名前・アイコン・グループコード)をlocalStorageから読み込み
   useEffect(() => {
     const stored = loadMe();
     if (stored) setMe(stored);
     else setShowOnboarding(true);
     setMeLoaded(true);
   }, []);
+
+  // 認証とプロフィールが揃ったら、直前まで「ヒマ中」だった場合に復元する
+  useEffect(() => {
+    if (resumeCheckedRef.current) return;
+    if (!me || !firebaseUid || !me.roomCode) return;
+    resumeCheckedRef.current = true;
+    (async () => {
+      const existing = await getMyPresence(me.roomCode, firebaseUid);
+      if (existing && Date.now() - (existing.lastActivityAt || 0) < IDLE_LIMIT_MS) {
+        const coords = existing.lat != null ? { lat: existing.lat, lng: existing.lng } : null;
+        setSelfCoords(coords);
+        lastMoveCoordsRef.current = coords;
+        lastMovementAtRef.current = existing.lastActivityAt;
+        lastActionAtRef.current = existing.lastActivityAt;
+        setLastActivityAt(existing.lastActivityAt);
+        setMessage(existing.message || "");
+        setGeoStatus(coords ? "granted" : "idle");
+        setHima(true);
+        if (coords) startWatch();
+        startHeartbeat();
+        setToast("さっきのヒマ状態を復元したよ");
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me, firebaseUid]);
 
   useEffect(() => {
     const t = setInterval(() => forceTick((n) => n + 1), 15000);
@@ -141,6 +182,18 @@ export default function App() {
     const t = setTimeout(() => setToast(null), 2600);
     return () => clearTimeout(t);
   }, [toast]);
+
+  // オンライン/オフライン監視
+  useEffect(() => {
+    const onOnline = () => { setIsOnline(true); setToast("オンラインに戻ったよ"); };
+    const onOffline = () => { setIsOnline(false); setToast("オフラインみたい。通信環境を確認してね"); };
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
+  }, []);
 
   const markAction = useCallback(() => {
     lastActionAtRef.current = Date.now();
@@ -174,7 +227,6 @@ export default function App() {
       return;
     }
     const nextMe = {
-      userId: genId(),
       name: draftName.trim() || "名無しさん",
       avatar: AVATARS[draftAvatarIdx],
       color: AVATAR_COLORS[draftAvatarIdx],
@@ -228,6 +280,7 @@ export default function App() {
     }
     if (himaRef.current) await stopHima();
     const nextMe = { ...meRef.current, roomCode: code };
+    delete nextMe.userId; // userIdはlocalStorageに保存しない(常にFirebase認証由来)
     await saveMe(nextMe);
     setSwitchCodeInput("");
     setToast(`「${code}」のグループに切り替えたよ`);
@@ -244,7 +297,8 @@ export default function App() {
       message: messageRef.current,
       lastActivityAt: Math.max(lastMovementAtRef.current, lastActionAtRef.current),
     };
-    await setPresence(meRef.current.roomCode, meRef.current.userId, payload);
+    const ok = await setPresence(meRef.current.roomCode, meRef.current.userId, payload);
+    if (!ok) setToast("通信がうまくいかなかったみたい。あとで自動的に再送するよ");
   };
 
   const removeStatus = async () => {
@@ -278,6 +332,15 @@ export default function App() {
     }
   };
 
+  const handleWatchError = (err) => {
+    if (err && err.code === 1) {
+      // PERMISSION_DENIED (許可が途中で取り消された)
+      stopHima("位置情報の許可が取り消されたみたい。ヒマ状態をオフにしたよ");
+    } else {
+      setToast("電波状況が悪いかも。位置情報の更新が遅れることがあるよ");
+    }
+  };
+
   const startWatch = () => {
     stopWatch();
     watchIdRef.current = navigator.geolocation.watchPosition(
@@ -291,7 +354,7 @@ export default function App() {
           setLastActivityAt(Date.now());
         }
       },
-      () => {},
+      handleWatchError,
       { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
     );
   };
@@ -306,6 +369,10 @@ export default function App() {
 
   const startHima = () => {
     markAction();
+    if (authState !== "ready") {
+      setToast("認証の準備中だよ。少し待ってからもう一度試してね");
+      return;
+    }
     if (!("geolocation" in navigator)) {
       setGeoStatus("unsupported");
       setToast("この端末では位置情報が使えないみたい");
@@ -346,19 +413,19 @@ export default function App() {
 
   // poll friends' Firestore statuses (scoped to our room code only)
   useEffect(() => {
-    if (!me || !me.roomCode) return;
+    if (!me || !firebaseUid || !me.roomCode) return;
     const poll = async () => {
       const all = await listPresence(me.roomCode);
       const now = Date.now();
       const others = all.filter(
-        (p) => p.userId !== me.userId && now - (p.lastActivityAt || 0) < IDLE_LIMIT_MS
+        (p) => p.userId !== firebaseUid && now - (p.lastActivityAt || 0) < IDLE_LIMIT_MS
       );
       setFriends(others);
     };
     poll();
     pollRef.current = setInterval(poll, POLL_MS);
     return () => clearInterval(pollRef.current);
-  }, [me]);
+  }, [me, firebaseUid]);
 
   useEffect(() => {
     return () => {
@@ -389,11 +456,11 @@ export default function App() {
 
   // poll invites addressed to me (scoped to our room code only)
   useEffect(() => {
-    if (!me || !me.roomCode) return;
+    if (!me || !firebaseUid || !me.roomCode) return;
     const seenIds = new Set();
     let first = true;
     const poll = async () => {
-      const list = await listMyInvites(me.roomCode, me.userId);
+      const list = await listMyInvites(me.roomCode, firebaseUid);
       if (first) {
         list.forEach((inv) => seenIds.add(inv.id));
         first = false;
@@ -410,7 +477,7 @@ export default function App() {
     poll();
     const t = setInterval(poll, POLL_MS);
     return () => clearInterval(t);
-  }, [me]);
+  }, [me, firebaseUid]);
 
   const withDist = friends.map((f) => {
     const dist = selfCoords && f.lat != null && f.lng != null
@@ -476,6 +543,11 @@ export default function App() {
             </div>
           </button>
           <div className="flex items-center gap-1.5">
+            {!isOnline && (
+              <div className="p-2 rounded-full" style={{ backgroundColor: "#4a2f33" }}>
+                <WifiOff size={13} color="#FFD3D3" />
+              </div>
+            )}
             <button onClick={openInvites} className="relative p-2 rounded-full" style={{ backgroundColor: "#332942" }}>
               <Bell size={13} color={DUST} />
               {unreadInviteCount > 0 && (
@@ -539,6 +611,13 @@ export default function App() {
             <div className="mt-2 flex items-center justify-between px-3 py-2 rounded-xl" style={{ backgroundColor: "#4a2f33" }}>
               <span className="zen-kaku text-[11px]" style={{ color: "#FFD3D3" }}>📍 位置情報の許可が必要だよ</span>
               <button onClick={startHima} className="zen-kaku text-[11px] font-bold px-2 py-1 rounded-full" style={{ backgroundColor: CORAL, color: CREAM }}>許可する</button>
+            </div>
+          )}
+
+          {authState === "failed" && (
+            <div className="mt-2 flex items-center justify-between px-3 py-2 rounded-xl" style={{ backgroundColor: "#4a2f33" }}>
+              <span className="zen-kaku text-[11px]" style={{ color: "#FFD3D3" }}>認証に時間がかかってるみたい</span>
+              <button onClick={() => window.location.reload()} className="zen-kaku text-[11px] font-bold px-2 py-1 rounded-full" style={{ backgroundColor: CORAL, color: CREAM }}>再読み込み</button>
             </div>
           )}
         </div>
@@ -640,7 +719,9 @@ export default function App() {
                   ) : (
                     <input value={draftRoomCode} onChange={(e) => setDraftRoomCode(e.target.value.toUpperCase())} maxLength={6} placeholder="例: A3F9K2" className="zen-kaku w-full px-4 py-2.5 rounded-xl text-sm outline-none mb-5 text-center" style={{ backgroundColor: "#fff", border: `1.5px solid ${DUST}`, color: INK, letterSpacing: 2 }} />
                   )}
-                  <button onClick={finishOnboarding} disabled={!draftRoomCode || draftRoomCode.length < 4} className="w-full py-3 rounded-2xl zen-maru font-bold" style={{ backgroundColor: draftRoomCode && draftRoomCode.length >= 4 ? CORAL : DUST, color: CREAM }}>はじめる</button>
+                  <button onClick={finishOnboarding} disabled={!draftRoomCode || draftRoomCode.length < 4 || authState !== "ready"} className="w-full py-3 rounded-2xl zen-maru font-bold" style={{ backgroundColor: draftRoomCode && draftRoomCode.length >= 4 && authState === "ready" ? CORAL : DUST, color: CREAM }}>
+                    {authState === "ready" ? "はじめる" : "認証中…"}
+                  </button>
                   <button onClick={() => setOnboardStep("profile")} className="w-full zen-kaku text-xs mt-3" style={{ color: DUST }}>＜ もどる</button>
                 </>
               )}
