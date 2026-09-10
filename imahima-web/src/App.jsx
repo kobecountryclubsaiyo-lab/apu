@@ -1,6 +1,15 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { Map as MapIcon, List, X, Send, Users, Clock, RefreshCw, Pencil, MapPin, Copy } from "lucide-react";
-import { setPresence, deletePresence, listPresence } from "./firebase.js";
+import { Map as MapIcon, List, X, Send, Users, Clock, RefreshCw, Pencil, MapPin, Copy, Bell, Check } from "lucide-react";
+import {
+  setPresence,
+  deletePresence,
+  listPresence,
+  sendInvite as sendInviteApi,
+  listMyInvites,
+  markInviteRead,
+  respondInvite,
+} from "./firebase.js";
+import MapView from "./MapView.jsx";
 
 const INK = "#241B2F";
 const CREAM = "#FFF8ED";
@@ -16,7 +25,6 @@ const IDLE_LIMIT_MS = 5 * 60 * 1000; // 5分 動きもアクションもなけ�
 const MOVE_THRESHOLD_M = 15; // GPSの揺れを無視する閾値
 const HEARTBEAT_MS = 20000;
 const POLL_MS = 10000;
-const MAX_RADAR_M = 5000;
 const ME_KEY = "imahima-me";
 
 function haversineM(lat1, lon1, lat2, lon2) {
@@ -28,16 +36,6 @@ function haversineM(lat1, lon1, lat2, lon2) {
     Math.sin(dLat / 2) ** 2 +
     Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-function bearingDeg(lat1, lon1, lat2, lon2) {
-  const toRad = (d) => (d * Math.PI) / 180;
-  const toDeg = (r) => (r * 180) / Math.PI;
-  const y = Math.sin(toRad(lon2 - lon1)) * Math.cos(toRad(lat2));
-  const x =
-    Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
-    Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(toRad(lon2 - lon1));
-  return (toDeg(Math.atan2(y, x)) + 360) % 360;
 }
 
 function fmtDistance(m) {
@@ -104,6 +102,8 @@ export default function App() {
   const [view, setView] = useState("list");
   const [friends, setFriends] = useState([]);
   const [selectedFriend, setSelectedFriend] = useState(null);
+  const [invites, setInvites] = useState([]);
+  const [showInvites, setShowInvites] = useState(false);
   const [toast, setToast] = useState(null);
   const [, forceTick] = useState(0);
 
@@ -387,28 +387,62 @@ export default function App() {
     markAction();
   };
 
+  // poll invites addressed to me (scoped to our room code only)
+  useEffect(() => {
+    if (!me || !me.roomCode) return;
+    const seenIds = new Set();
+    let first = true;
+    const poll = async () => {
+      const list = await listMyInvites(me.roomCode, me.userId);
+      if (first) {
+        list.forEach((inv) => seenIds.add(inv.id));
+        first = false;
+      } else {
+        for (const inv of list) {
+          if (inv.status === "pending" && !seenIds.has(inv.id)) {
+            seenIds.add(inv.id);
+            setToast(`${inv.fromAvatar} ${inv.fromName}が「一緒にヒマしよ」って誘ってるよ 💌`);
+          }
+        }
+      }
+      setInvites(list);
+    };
+    poll();
+    const t = setInterval(poll, POLL_MS);
+    return () => clearInterval(t);
+  }, [me]);
+
   const withDist = friends.map((f) => {
-    let dist = null, brg = null;
-    if (selfCoords && f.lat != null && f.lng != null) {
-      dist = haversineM(selfCoords.lat, selfCoords.lng, f.lat, f.lng);
-      brg = bearingDeg(selfCoords.lat, selfCoords.lng, f.lat, f.lng);
-    }
-    return { ...f, dist, brg };
+    const dist = selfCoords && f.lat != null && f.lng != null
+      ? haversineM(selfCoords.lat, selfCoords.lng, f.lat, f.lng)
+      : null;
+    return { ...f, dist };
   }).sort((a, b) => (a.dist ?? 1e9) - (b.dist ?? 1e9));
 
-  const sendInvite = (name) => {
-    setToast(`${name} に「一緒にヒマしよ」を送ったよ 📮`);
+  const pendingInvites = invites.filter((i) => i.status === "pending");
+  const unreadInviteCount = invites.filter((i) => !i.read).length;
+
+  const handleSendInvite = async (friend) => {
     setSelectedFriend(null);
     markAction();
+    const ok = await sendInviteApi(meRef.current.roomCode, meRef.current, friend.userId);
+    setToast(ok ? `${friend.name} に「一緒にヒマしよ」を送ったよ 📮` : "送信に失敗しちゃった…もう一度試してね");
   };
 
-  const radarPos = (dist, brg) => {
-    const fraction = Math.min(dist / MAX_RADAR_M, 1);
-    const rad = (brg * Math.PI) / 180;
-    return {
-      x: 50 + fraction * 45 * Math.sin(rad),
-      y: 50 - fraction * 45 * Math.cos(rad),
-    };
+  const openInvites = async () => {
+    markAction();
+    setShowInvites(true);
+    const unread = invites.filter((i) => !i.read);
+    if (unread.length === 0) return;
+    setInvites((prev) => prev.map((i) => ({ ...i, read: true })));
+    await Promise.all(unread.map((inv) => markInviteRead(inv.id)));
+  };
+
+  const handleRespondInvite = async (invite, status) => {
+    markAction();
+    setInvites((prev) => prev.map((i) => (i.id === invite.id ? { ...i, status, read: true } : i)));
+    await respondInvite(invite.id, status);
+    setToast(status === "accepted" ? `${invite.fromName}に「のった!」を伝えたよ 🙌` : `${invite.fromName}に伝えたよ`);
   };
 
   return (
@@ -442,6 +476,17 @@ export default function App() {
             </div>
           </button>
           <div className="flex items-center gap-1.5">
+            <button onClick={openInvites} className="relative p-2 rounded-full" style={{ backgroundColor: "#332942" }}>
+              <Bell size={13} color={DUST} />
+              {unreadInviteCount > 0 && (
+                <span
+                  className="absolute -top-1 -right-1 flex items-center justify-center rounded-full zen-kaku"
+                  style={{ width: 15, height: 15, backgroundColor: CORAL, color: CREAM, fontSize: 9, fontWeight: 700 }}
+                >
+                  {unreadInviteCount}
+                </span>
+              )}
+            </button>
             <button onClick={() => { markAction(); setFriends((f) => [...f]); }} className="p-2 rounded-full" style={{ backgroundColor: "#332942" }}>
               <RefreshCw size={13} color={DUST} />
             </button>
@@ -505,7 +550,7 @@ export default function App() {
             className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-full zen-kaku text-sm font-bold transition-colors"
             style={{ backgroundColor: view === "map" ? INK : "transparent", color: view === "map" ? CREAM : INK, border: `1.5px solid ${INK}` }}
           >
-            <MapIcon size={15} /> レーダー
+            <MapIcon size={15} /> 地図
           </button>
           <button
             onClick={() => { setView("list"); markAction(); }}
@@ -519,41 +564,19 @@ export default function App() {
         {/* Content */}
         <div className="flex-1 px-5 pb-6">
           {view === "map" ? (
-            <div className="relative w-full rounded-3xl overflow-hidden shadow-inner flex items-center justify-center" style={{ height: 420, backgroundColor: "#EFE9DC", border: `3px solid ${INK}` }}>
-              {!hima ? (
-                <div className="flex flex-col items-center text-center px-8 gap-3">
+            <div className="relative w-full rounded-3xl overflow-hidden shadow-inner" style={{ height: 420, backgroundColor: "#EFE9DC", border: `3px solid ${INK}` }}>
+              {!hima || !selfCoords ? (
+                <div className="w-full h-full flex flex-col items-center justify-center text-center px-8 gap-3">
                   <MapPin size={28} color={DUST} />
-                  <p className="zen-kaku text-sm" style={{ color: INK }}>自分もヒマにすると、まわりのヒマな友達がレーダーに出てくるよ</p>
+                  <p className="zen-kaku text-sm" style={{ color: INK }}>自分もヒマにすると、まわりのヒマな友達が地図に出てくるよ</p>
                   <button onClick={handleToggle} className="zen-maru text-sm font-bold px-4 py-2 rounded-full" style={{ backgroundColor: CORAL, color: CREAM }}>今ヒマにする</button>
                 </div>
               ) : (
-                <div className="relative" style={{ width: "100%", height: "100%" }}>
-                  {[0.1, 0.4, 1].map((f, i) => (
-                    <div key={i} className="absolute rounded-full" style={{
-                      width: `${f * 90}%`, height: `${f * 90}%`, left: `${50 - f * 45}%`, top: `${50 - f * 45}%`,
-                      border: `1.5px dashed ${DUST}`, opacity: 0.6,
-                    }} />
-                  ))}
-                  <span className="absolute zen-kaku text-[10px]" style={{ left: "50%", top: "3%", transform: "translateX(-50%)", color: DUST }}>N</span>
-
-                  <div className="absolute flex flex-col items-center" style={{ left: "50%", top: "50%", transform: "translate(-50%,-50%)" }}>
-                    <div className="rounded-full glow-anim" style={{ width: 20, height: 20, backgroundColor: CORAL, border: `3px solid ${CREAM}` }} />
-                    <span className="zen-kaku text-[10px] font-bold mt-1 px-1.5 py-0.5 rounded" style={{ backgroundColor: INK, color: CREAM }}>自分</span>
-                  </div>
-
-                  {withDist.filter((f) => f.dist != null).map((f) => {
-                    const p = radarPos(f.dist, f.brg);
-                    return (
-                      <button key={f.userId} onClick={() => { setSelectedFriend(f); markAction(); }} className="absolute flex flex-col items-center" style={{ left: `${p.x}%`, top: `${p.y}%`, transform: "translate(-50%,-100%)" }}>
-                        <div className="relative rounded-2xl px-2 py-1.5 shadow-lg" style={{ backgroundColor: CREAM, border: `2px solid ${f.color}` }}>
-                          <span className="text-lg">{f.avatar}</span>
-                        </div>
-                        <div style={{ width: 7, height: 7, marginTop: -3, backgroundColor: CREAM, transform: "rotate(45deg)", borderRight: `2px solid ${f.color}`, borderBottom: `2px solid ${f.color}` }} />
-                        <span className="zen-kaku text-[9px] font-bold mt-1 px-1 rounded" style={{ backgroundColor: INK, color: CREAM }}>{f.name}</span>
-                      </button>
-                    );
-                  })}
-                </div>
+                <MapView
+                  self={selfCoords}
+                  friends={withDist}
+                  onSelectFriend={(f) => { setSelectedFriend(f); markAction(); }}
+                />
               )}
             </div>
           ) : (
@@ -672,9 +695,46 @@ export default function App() {
                 </div>
               </div>
               <p className="zen-kaku text-sm px-3 py-2.5 rounded-xl mb-4" style={{ backgroundColor: "#EFEAE0", color: INK }}>{selectedFriend.message || "メッセージはありません"}</p>
-              <button onClick={() => sendInvite(selectedFriend.name)} className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl zen-maru font-bold" style={{ backgroundColor: CORAL, color: CREAM }}>
+              <button onClick={() => handleSendInvite(selectedFriend)} className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl zen-maru font-bold" style={{ backgroundColor: CORAL, color: CREAM }}>
                 <Send size={16} /> 一緒にヒマしよって誘う
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* Invites inbox */}
+        {showInvites && (
+          <div className="fixed inset-0 z-40 flex items-end justify-center" style={{ maxWidth: 430, margin: "0 auto" }}>
+            <div className="absolute inset-0" style={{ backgroundColor: "rgba(36,27,47,0.5)" }} onClick={() => setShowInvites(false)} />
+            <div className="relative w-full sheet-anim rounded-t-3xl p-5 pb-7" style={{ backgroundColor: CREAM, maxWidth: 430, maxHeight: "75vh", overflowY: "auto", border: `3px solid ${INK}`, borderBottom: "none" }}>
+              <button onClick={() => setShowInvites(false)} className="absolute top-4 right-4 rounded-full p-1.5" style={{ backgroundColor: "#EFEAE0" }}><X size={16} color={INK} /></button>
+              <h2 className="zen-maru text-xl mb-4" style={{ color: INK }}>誘われたよ 💌</h2>
+              {pendingInvites.length === 0 ? (
+                <p className="zen-kaku text-sm text-center py-6" style={{ color: DUST }}>今のところ誘いはないよ</p>
+              ) : (
+                <div className="flex flex-col gap-2.5">
+                  {pendingInvites.map((inv) => (
+                    <div key={inv.id} className="p-3 rounded-2xl" style={{ backgroundColor: "#EFEAE0", border: `2px solid ${inv.fromColor || DUST}` }}>
+                      <div className="flex items-center gap-2.5 mb-2">
+                        <div className="rounded-xl flex items-center justify-center text-xl" style={{ width: 40, height: 40, backgroundColor: "#fff" }}>{inv.fromAvatar}</div>
+                        <div className="flex-1 min-w-0">
+                          <p className="zen-maru font-bold text-sm" style={{ color: INK }}>{inv.fromName}</p>
+                          <p className="zen-kaku text-xs truncate" style={{ color: "#5b5468" }}>{inv.message}</p>
+                        </div>
+                        <span className="zen-kaku text-[10px] shrink-0" style={{ color: DUST }}>{fmtAgo(inv.createdAt)}</span>
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => handleRespondInvite(inv, "accepted")} className="flex-1 flex items-center justify-center gap-1 py-2 rounded-xl zen-kaku text-xs font-bold" style={{ backgroundColor: TEAL, color: CREAM }}>
+                          <Check size={13} /> のる!
+                        </button>
+                        <button onClick={() => handleRespondInvite(inv, "declined")} className="flex-1 py-2 rounded-xl zen-kaku text-xs font-bold" style={{ backgroundColor: "#fff", color: INK, border: `1.5px solid ${DUST}` }}>
+                          またね
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}

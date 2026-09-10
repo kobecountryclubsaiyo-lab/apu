@@ -7,6 +7,8 @@ import {
   deleteDoc,
   collection,
   getDocs,
+  addDoc,
+  updateDoc,
   query,
   where,
 } from "firebase/firestore";
@@ -58,4 +60,55 @@ export async function listPresence(roomCode) {
   } catch (e) {
     return [];
   }
+}
+
+// invites コレクション: 「一緒にヒマしよ」の誘い。ドキュメントIDは自動採番
+const invitesColRef = () => collection(db, "invites");
+
+export async function sendInvite(roomCode, fromMe, toUserId, message) {
+  try {
+    await addDoc(invitesColRef(), {
+      roomCode,
+      fromUserId: fromMe.userId,
+      fromName: fromMe.name,
+      fromAvatar: fromMe.avatar,
+      fromColor: fromMe.color,
+      toUserId,
+      message: message || "一緒にヒマしよ",
+      status: "pending", // pending | accepted | declined
+      read: false,
+      createdAt: Date.now(),
+    });
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+export async function listMyInvites(roomCode, userId) {
+  try {
+    const q = query(
+      invitesColRef(),
+      where("roomCode", "==", roomCode),
+      where("toUserId", "==", userId)
+    );
+    const snap = await getDocs(q);
+    return snap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  } catch (e) {
+    return [];
+  }
+}
+
+export async function markInviteRead(inviteId) {
+  try {
+    await updateDoc(doc(db, "invites", inviteId), { read: true });
+  } catch (e) {}
+}
+
+export async function respondInvite(inviteId, status) {
+  try {
+    await updateDoc(doc(db, "invites", inviteId), { status, read: true });
+  } catch (e) {}
 }

@@ -29,6 +29,15 @@ service cloud.firestore {
         && request.resource.data.roomCode.size() <= 8
         && request.resource.data.userId is string;
     }
+    match /invites/{inviteId} {
+      allow read: if true;
+      allow create: if request.resource.data.roomCode is string
+        && request.resource.data.roomCode.size() <= 8
+        && request.resource.data.fromUserId is string
+        && request.resource.data.toUserId is string;
+      allow update: if request.resource.data.fromUserId == resource.data.fromUserId
+        && request.resource.data.toUserId == resource.data.toUserId;
+    }
   }
 }
 ```
