@@ -39,6 +39,8 @@ model User {
   reactionsReceived Reaction[]           @relation("ReactionTo")
   reportsFiled      Report[]             @relation("ReportsFiled")
   reportsReceived   Report[]             @relation("ReportsReceived")
+  blocksMade        Block[]              @relation("Blocker")
+  blocksReceived    Block[]              @relation("Blocked")
 }
 
 model Theme {
@@ -173,4 +175,18 @@ model Report {
   targetUser  User         @relation("ReportsReceived", fields: [targetUserId], references: [id], onDelete: Cascade)
   room        Room?        @relation(fields: [roomId], references: [id])
   recruitPost RecruitPost? @relation(fields: [recruitPostId], references: [id])
+}
+
+// ブロックすると、お互いの投稿・メッセージ・プロフィールが表示されなくなる
+// （report-block-prototype.jsx）。方向は記録するが、可視性チェックは常に双方向で行う。
+model Block {
+  id        Int      @id @default(autoincrement())
+  blockerId Int
+  blockedId Int
+  createdAt DateTime @default(now())
+
+  blocker User @relation("Blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked User @relation("Blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
 }

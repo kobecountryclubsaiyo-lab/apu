@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ChevronLeft, Users, Sparkles, ArrowRight, ArrowUp } from "lucide-react";
+import { ChevronLeft, Users, Sparkles, ArrowRight, ArrowUp, MoreVertical } from "lucide-react";
 import { ICONS_BY_KEY, accentClass } from "@/components/theme-icons";
+import ReportBlockMenu from "@/components/ReportBlockMenu";
 import type { PublicUser } from "@/lib/serialize";
 
 const POLL_INTERVAL_MS = 4000;
@@ -26,6 +27,7 @@ export default function ChatRoom({
   const [summary, setSummary] = useState<string[] | null>(null);
   const [summarizing, setSummarizing] = useState(false);
   const [draft, setDraft] = useState("");
+  const [reportTarget, setReportTarget] = useState<{ id: number; name: string; text: string } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const Icon = ICONS_BY_KEY[room.themeIcon] ?? ICONS_BY_KEY.default;
 
@@ -83,7 +85,7 @@ export default function ChatRoom({
   return (
     <div className="min-h-screen w-full flex items-center justify-center p-6 bg-[#0F1226]">
       <div
-        className="w-full max-w-sm rounded-2xl overflow-hidden flex flex-col bg-paper text-ink shadow-2xl"
+        className="relative w-full max-w-sm rounded-2xl overflow-hidden flex flex-col bg-paper text-ink shadow-2xl"
         style={{ height: "700px" }}
       >
         <div className="px-4 pt-5 pb-4 flex items-center gap-3 shrink-0 bg-night text-paper">
@@ -160,6 +162,15 @@ export default function ChatRoom({
                         minute: "2-digit",
                       })}
                     </span>
+                    {!self && (
+                      <button
+                        onClick={() => setReportTarget({ id: m.user.id, name: m.user.name, text: m.text })}
+                        className="w-5 h-5 rounded-full flex items-center justify-center shrink-0"
+                        aria-label={`${m.user.name}への操作`}
+                      >
+                        <MoreVertical size={12} className="text-stone" />
+                      </button>
+                    )}
                   </div>
                   <div
                     className={`px-3 py-2 rounded-2xl text-[12.5px] leading-snug ${
@@ -175,6 +186,18 @@ export default function ChatRoom({
             );
           })}
         </div>
+
+        {reportTarget && (
+          <ReportBlockMenu
+            targetUser={reportTarget}
+            contentSnippet={reportTarget.text}
+            roomId={room.id}
+            onClose={() => {
+              setReportTarget(null);
+              loadMessages();
+            }}
+          />
+        )}
 
         <form
           onSubmit={sendMessage}

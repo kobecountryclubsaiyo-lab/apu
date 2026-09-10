@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Users, User, ShieldCheck } from "lucide-react";
+import { Users, User, ShieldCheck, Flag } from "lucide-react";
 import type { PublicUser } from "@/lib/serialize";
 
 export default function NavBar({ user }: { user: PublicUser | null }) {
@@ -24,10 +24,16 @@ export default function NavBar({ user }: { user: PublicUser | null }) {
       </Link>
       <div className="flex items-center gap-3">
         {user.isAdmin && (
-          <Link href="/admin/rooms" className="flex items-center gap-1 text-[#C9C3B4]">
-            <ShieldCheck size={13} />
-            承認待ち
-          </Link>
+          <>
+            <Link href="/admin/rooms" className="flex items-center gap-1 text-[#C9C3B4]">
+              <ShieldCheck size={13} />
+              承認待ち
+            </Link>
+            <Link href="/admin/reports" className="flex items-center gap-1 text-[#C9C3B4]">
+              <Flag size={13} />
+              通報
+            </Link>
+          </>
         )}
         <Link href="/profile" className="flex items-center gap-1 text-[#C9C3B4]">
           <User size={13} />

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireUser, ApiError, handleApiError } from "@/lib/api-helpers";
+import { getBlockedUserIds } from "@/lib/blocks";
 
 // app-specification.md 4章: また遊びたい／楽しかった／面白かった
 const reactionSchema = z.object({
@@ -32,6 +33,11 @@ export async function POST(req: NextRequest) {
     });
     if (!sharedRoom) {
       throw new ApiError(403, "同じ部屋に参加しているユーザーにのみリアクションできます");
+    }
+
+    const blockedIds = await getBlockedUserIds(user.id);
+    if (blockedIds.has(toUserId)) {
+      throw new ApiError(403, "ブロック中のユーザーにはリアクションできません");
     }
 
     const reaction = await prisma.reaction.upsert({

@@ -8,6 +8,7 @@ import NavBar from "@/components/NavBar";
 import { ICONS_BY_KEY } from "@/components/theme-icons";
 import ProfileHero from "@/components/ProfileHero";
 import { Heart, Smile, Star } from "lucide-react";
+import { getBlockedUserIds } from "@/lib/blocks";
 
 const REACTION_ICONS: Record<ReactionType, typeof Heart> = { AGAIN: Heart, FUN: Smile, INTERESTING: Star };
 
@@ -15,8 +16,14 @@ export default async function ProfilePage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
+  const blockedIds = await getBlockedUserIds(user.id);
+
   const [reactionCounts, memberThemes, joinedActivity, organizedActivity] = await Promise.all([
-    prisma.reaction.groupBy({ by: ["type"], where: { toUserId: user.id }, _count: { type: true } }),
+    prisma.reaction.groupBy({
+      by: ["type"],
+      where: { toUserId: user.id, fromUserId: { notIn: Array.from(blockedIds) } },
+      _count: { type: true },
+    }),
     prisma.theme.findMany({
       where: { rooms: { some: { memberships: { some: { userId: user.id } } } } },
       take: 6,

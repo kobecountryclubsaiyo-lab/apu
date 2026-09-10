@@ -2,31 +2,44 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireUser, ApiError, handleApiError } from "@/lib/api-helpers";
+import { getBlockedUserIds } from "@/lib/blocks";
 
 const MESSAGE_PAGE_SIZE = 50;
 
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
-  const roomId = Number(params.id);
-  const messages = await prisma.message.findMany({
-    where: { roomId },
-    orderBy: { createdAt: "asc" },
-    take: MESSAGE_PAGE_SIZE,
-    include: { user: true },
-  });
+export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+  try {
+    const user = await requireUser();
+    const roomId = Number(params.id);
 
-  return NextResponse.json({
-    messages: messages.map((m) => ({
-      id: m.id,
-      text: m.text,
-      createdAt: m.createdAt,
-      user: {
-        id: m.user.id,
-        name: m.user.name,
-        avatarInitial: m.user.avatarInitial,
-        avatarColor: m.user.avatarColor,
-      },
-    })),
-  });
+    const [messages, blockedIds] = await Promise.all([
+      prisma.message.findMany({
+        where: { roomId },
+        orderBy: { createdAt: "asc" },
+        take: MESSAGE_PAGE_SIZE,
+        include: { user: true },
+      }),
+      getBlockedUserIds(user.id),
+    ]);
+
+    // ブロックすると、お互いのメッセージが表示されなくなる（report-block-prototype.jsx）
+    const visible = messages.filter((m) => !blockedIds.has(m.userId));
+
+    return NextResponse.json({
+      messages: visible.map((m) => ({
+        id: m.id,
+        text: m.text,
+        createdAt: m.createdAt,
+        user: {
+          id: m.user.id,
+          name: m.user.name,
+          avatarInitial: m.user.avatarInitial,
+          avatarColor: m.user.avatarColor,
+        },
+      })),
+    });
+  } catch (err) {
+    return handleApiError(err);
+  }
 }
 
 const sendMessageSchema = z.object({ text: z.string().trim().min(1).max(1000) });
