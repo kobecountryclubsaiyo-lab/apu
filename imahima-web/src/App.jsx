@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { Map as MapIcon, List, X, Send, Users, Clock, RefreshCw, Pencil, MapPin, Copy, Bell, Check, WifiOff } from "lucide-react";
+import { Map as MapIcon, List, X, Send, Users, Clock, RefreshCw, Pencil, MapPin, Copy, Bell, Check, WifiOff, Share2 } from "lucide-react";
 import {
   auth,
   onAuthStateChanged,
@@ -97,6 +97,7 @@ export default function App() {
   const [message, setMessage] = useState("");
   const [lastActivityAt, setLastActivityAt] = useState(null);
   const [isOnline, setIsOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
+  const [showA2HS, setShowA2HS] = useState(false);
 
   const [view, setView] = useState("list");
   const [friends, setFriends] = useState([]);
@@ -194,6 +195,19 @@ export default function App() {
       window.removeEventListener("offline", onOffline);
     };
   }, []);
+
+  // iOS Safariでホーム画面未追加なら「ホーム画面に追加」を案内する
+  useEffect(() => {
+    const standalone = window.navigator.standalone === true || window.matchMedia("(display-mode: standalone)").matches;
+    const dismissed = localStorage.getItem("imahima-a2hs-dismissed") === "1";
+    const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    if (!standalone && !dismissed && isIOS) setShowA2HS(true);
+  }, []);
+
+  const dismissA2HS = () => {
+    setShowA2HS(false);
+    try { localStorage.setItem("imahima-a2hs-dismissed", "1"); } catch (e) {}
+  };
 
   const markAction = useCallback(() => {
     lastActionAtRef.current = Date.now();
@@ -576,6 +590,18 @@ export default function App() {
             <button onClick={copyRoomCode} className="flex items-center gap-1.5 px-3 py-1 rounded-full" style={{ backgroundColor: "#332942" }}>
               <span className="zen-kaku text-xs font-bold" style={{ color: GOLD, letterSpacing: 2 }}>{me.roomCode}</span>
               <Copy size={12} color={DUST} />
+            </button>
+          </div>
+        )}
+
+        {showA2HS && (
+          <div className="flex items-center gap-3 px-5 py-3" style={{ backgroundColor: "#332942" }}>
+            <Share2 size={16} color={GOLD} />
+            <p className="zen-kaku text-[11px] flex-1" style={{ color: CREAM }}>
+              共有ボタンから<span className="font-bold">「ホーム画面に追加」</span>すると、アプリみたいに使えるよ
+            </p>
+            <button onClick={dismissA2HS} className="p-1 rounded-full shrink-0" style={{ backgroundColor: "#241B2F" }}>
+              <X size={12} color={DUST} />
             </button>
           </div>
         )}
