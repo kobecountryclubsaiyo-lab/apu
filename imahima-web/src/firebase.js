@@ -14,17 +14,14 @@ import {
   where,
 } from "firebase/firestore";
 
-// ▼▼▼ ここをFirebaseコンソールでコピーした値に置き換えてください ▼▼▼
-// Firebaseコンソール → プロジェクトの設定 → 全般 → マイアプリ → ウェブアプリの「SDK の設定と構成」からコピーできます
 const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT.appspot.com",
-  messagingSenderId: "YOUR_SENDER_ID",
-  appId: "YOUR_APP_ID",
+  apiKey: "AIzaSyDNU6TFln82cdQ_hKyLw4q0f1PwuuXqwik",
+  authDomain: "imahima-adb1a.firebaseapp.com",
+  projectId: "imahima-adb1a",
+  storageBucket: "imahima-adb1a.firebasestorage.app",
+  messagingSenderId: "56241698411",
+  appId: "1:56241698411:web:3999f0a77e597951c8e32e",
 };
-// ▲▲▲ ここまで ▲▲▲
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
