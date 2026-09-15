@@ -29,7 +29,7 @@ const MOVE_THRESHOLD_M = 15; // GPSの揺れを無視する閾値
 const HEARTBEAT_MS = 20000;
 const POLL_MS = 10000;
 const ME_KEY = "imahima-me";
-const AUTH_TIMEOUT_MS = 8000;
+const AUTH_TIMEOUT_MS = 3000;
 
 function haversineM(lat1, lon1, lat2, lon2) {
   const R = 6371000;
@@ -748,6 +748,9 @@ export default function App() {
                   <button onClick={finishOnboarding} disabled={!draftRoomCode || draftRoomCode.length < 4 || authState !== "ready"} className="w-full py-3 rounded-2xl zen-maru font-bold" style={{ backgroundColor: draftRoomCode && draftRoomCode.length >= 4 && authState === "ready" ? CORAL : DUST, color: CREAM }}>
                     {authState === "ready" ? "はじめる" : "認証中…"}
                   </button>
+                  {authState === "failed" && window.__authError && (
+                    <p className="zen-kaku mt-2 text-center break-all" style={{ fontSize: 10, color: "#B0473F" }}>{window.__authError}</p>
+                  )}
                   <button onClick={() => setOnboardStep("profile")} className="w-full zen-kaku text-xs mt-3" style={{ color: DUST }}>＜ もどる</button>
                 </>
               )}
