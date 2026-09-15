@@ -30,11 +30,15 @@ export const db = getFirestore(app);
 // 匿名認証: ログイン画面なしで自動的にサインインされる。
 // これにより「自分のpresence/invitesは自分にしか書き換え・削除できない」をFirestoreルール側で保証できる
 // (サンプルの友達を置く機能だけは特別に、doc IDが `_demo-` を含むものに限り許可する)。
-signInAnonymously(auth).catch((e) => {
-  // 失敗した場合はApp.jsx側のタイムアウト処理でエラーバナーが出る。
-  // デバッグ用に、window.__authError にエラー内容を残しておく。
-  window.__authError = `${e.code || ""} ${e.message || e}`.trim();
-});
+export function trySignInAnonymously() {
+  window.__authError = null;
+  return signInAnonymously(auth).catch((e) => {
+    // 失敗した場合はApp.jsx側のタイムアウト処理でエラーバナーが出る。
+    // デバッグ用に、window.__authError にエラー内容を残しておく。
+    window.__authError = `${e.code || ""} ${e.message || e}`.trim();
+  });
+}
+trySignInAnonymously();
 
 export { onAuthStateChanged };
 

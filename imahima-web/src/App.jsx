@@ -3,6 +3,7 @@ import { Map as MapIcon, List, X, Send, Users, Clock, RefreshCw, Pencil, MapPin,
 import {
   auth,
   onAuthStateChanged,
+  trySignInAnonymously,
   getMyPresence,
   setPresence,
   deletePresence,
@@ -81,6 +82,7 @@ export default function App() {
   const [meLoaded, setMeLoaded] = useState(false);
   const [me, setMe] = useState(null); // { name, avatar, color, roomCode } ※userIdはFirebase匿名認証のuidを別途使う
   const [authState, setAuthState] = useState("pending"); // pending | ready | failed
+  const [authAttempt, setAuthAttempt] = useState(0);
   const [firebaseUid, setFirebaseUid] = useState(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
@@ -138,7 +140,13 @@ export default function App() {
       setAuthState((s) => (s === "pending" ? "failed" : s));
     }, AUTH_TIMEOUT_MS);
     return () => { unsub(); clearTimeout(t); };
-  }, []);
+  }, [authAttempt]);
+
+  const retryAuth = () => {
+    setAuthState("pending");
+    setAuthAttempt((n) => n + 1);
+    trySignInAnonymously();
+  };
 
   // プロフィール(名前・アイコン・グループコード)をlocalStorageから読み込み
   useEffect(() => {
@@ -745,8 +753,16 @@ export default function App() {
                   ) : (
                     <input value={draftRoomCode} onChange={(e) => setDraftRoomCode(e.target.value.toUpperCase())} maxLength={6} placeholder="例: A3F9K2" className="zen-kaku w-full px-4 py-2.5 rounded-xl text-sm outline-none mb-5 text-center" style={{ backgroundColor: "#fff", border: `1.5px solid ${DUST}`, color: INK, letterSpacing: 2 }} />
                   )}
-                  <button onClick={finishOnboarding} disabled={!draftRoomCode || draftRoomCode.length < 4 || authState !== "ready"} className="w-full py-3 rounded-2xl zen-maru font-bold" style={{ backgroundColor: draftRoomCode && draftRoomCode.length >= 4 && authState === "ready" ? CORAL : DUST, color: CREAM }}>
-                    {authState === "ready" ? "はじめる" : "認証中…"}
+                  <button
+                    onClick={authState === "failed" ? retryAuth : finishOnboarding}
+                    disabled={authState === "failed" ? false : (!draftRoomCode || draftRoomCode.length < 4 || authState !== "ready")}
+                    className="w-full py-3 rounded-2xl zen-maru font-bold"
+                    style={{
+                      backgroundColor: authState === "failed" ? "#B0473F" : (draftRoomCode && draftRoomCode.length >= 4 && authState === "ready" ? CORAL : DUST),
+                      color: CREAM,
+                    }}
+                  >
+                    {authState === "failed" ? "認証エラー(タップで再試行)" : authState === "ready" ? "はじめる" : "認証中…"}
                   </button>
                   {authState === "failed" && window.__authError && (
                     <p className="zen-kaku mt-2 text-center break-all" style={{ fontSize: 10, color: "#B0473F" }}>{window.__authError}</p>
