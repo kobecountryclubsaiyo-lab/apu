@@ -24,6 +24,17 @@ export async function POST(req: NextRequest) {
       throw new ApiError(400, "自分自身は通報できません");
     }
 
+    // 存在しない/面識のない相手を通報できてしまわないよう、同じ部屋のメンバー同士か確認する
+    const sharedRoom = await prisma.roomMembership.findFirst({
+      where: {
+        userId: user.id,
+        room: { memberships: { some: { userId: targetUserId } } },
+      },
+    });
+    if (!sharedRoom) {
+      throw new ApiError(403, "同じ部屋に参加しているユーザーにのみ通報できます");
+    }
+
     const report = await prisma.report.create({
       data: { reporterId: user.id, targetUserId, roomId, recruitPostId, reason },
     });

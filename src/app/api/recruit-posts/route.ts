@@ -1,38 +1,40 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireUser, ApiError, handleApiError } from "@/lib/api-helpers";
+import { requireUser, parseId, ApiError, handleApiError } from "@/lib/api-helpers";
 import { MIN_RECRUIT_CAPACITY, MAX_RECRUIT_CAPACITY } from "@/lib/rules";
 
 export async function GET(req: NextRequest) {
-  const roomId = Number(req.nextUrl.searchParams.get("roomId"));
-  if (!Number.isInteger(roomId)) {
-    return NextResponse.json({ error: "roomId が必要です" }, { status: 400 });
+  try {
+    await requireUser();
+    const roomId = parseId(req.nextUrl.searchParams.get("roomId") ?? "");
+
+    const posts = await prisma.recruitPost.findMany({
+      where: { roomId },
+      orderBy: { createdAt: "desc" },
+      include: { createdBy: true, _count: { select: { participants: true } } },
+    });
+
+    return NextResponse.json({
+      posts: posts.map((p) => ({
+        id: p.id,
+        title: p.title,
+        scheduledAt: p.scheduledAt,
+        capacity: p.capacity,
+        offlineMeet: p.offlineMeet,
+        participantCount: p._count.participants,
+        createdAt: p.createdAt,
+        createdBy: {
+          id: p.createdBy.id,
+          name: p.createdBy.name,
+          avatarInitial: p.createdBy.avatarInitial,
+          avatarColor: p.createdBy.avatarColor,
+        },
+      })),
+    });
+  } catch (err) {
+    return handleApiError(err);
   }
-
-  const posts = await prisma.recruitPost.findMany({
-    where: { roomId },
-    orderBy: { createdAt: "desc" },
-    include: { createdBy: true, _count: { select: { participants: true } } },
-  });
-
-  return NextResponse.json({
-    posts: posts.map((p) => ({
-      id: p.id,
-      title: p.title,
-      scheduledAt: p.scheduledAt,
-      capacity: p.capacity,
-      offlineMeet: p.offlineMeet,
-      participantCount: p._count.participants,
-      createdAt: p.createdAt,
-      createdBy: {
-        id: p.createdBy.id,
-        name: p.createdBy.name,
-        avatarInitial: p.createdBy.avatarInitial,
-        avatarColor: p.createdBy.avatarColor,
-      },
-    })),
-  });
 }
 
 // 安全設計（app-specification.md 5章）：

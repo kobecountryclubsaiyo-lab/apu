@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireUser, handleApiError } from "@/lib/api-helpers";
+import { requireUser, ApiError, handleApiError } from "@/lib/api-helpers";
 import { canAutoApproveRoom } from "@/lib/rules";
 
 const createRoomSchema = z.object({
@@ -23,6 +23,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "入力内容を確認してください" }, { status: 400 });
     }
     const { themeId, name, description } = parsed.data;
+
+    const theme = await prisma.theme.findUnique({ where: { id: themeId } });
+    if (!theme) throw new ApiError(404, "テーマが見つかりません");
 
     const reactionCount = await prisma.reaction.count({ where: { toUserId: user.id } });
     const autoApprove = canAutoApproveRoom(user.offlineMeetCount, reactionCount);

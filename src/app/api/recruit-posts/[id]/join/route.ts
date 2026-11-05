@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireUser, ApiError, handleApiError } from "@/lib/api-helpers";
+import { requireUser, parseId, ApiError, handleApiError } from "@/lib/api-helpers";
 
 export async function POST(_req: Request, { params }: { params: { id: string } }) {
   try {
     const user = await requireUser();
-    const recruitPostId = Number(params.id);
+    const recruitPostId = parseId(params.id);
 
     const post = await prisma.recruitPost.findUnique({
       where: { id: recruitPostId },

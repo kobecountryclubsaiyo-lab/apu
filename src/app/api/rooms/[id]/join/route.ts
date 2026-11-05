@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireUser, handleApiError } from "@/lib/api-helpers";
+import { requireUser, parseId, handleApiError } from "@/lib/api-helpers";
 
 export async function POST(_req: Request, { params }: { params: { id: string } }) {
   try {
     const user = await requireUser();
-    const roomId = Number(params.id);
+    const roomId = parseId(params.id);
     const room = await prisma.room.findUnique({ where: { id: roomId } });
     if (!room || room.status !== "APPROVED") {
       return NextResponse.json({ error: "部屋が見つかりません" }, { status: 404 });

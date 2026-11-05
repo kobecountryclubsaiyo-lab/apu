@@ -1,15 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireUser, ApiError, handleApiError } from "@/lib/api-helpers";
+import { requireUser, parseId, ApiError, handleApiError } from "@/lib/api-helpers";
 import { getBlockedUserIds } from "@/lib/blocks";
 
 const MESSAGE_PAGE_SIZE = 50;
 
+async function assertMember(userId: number, roomId: number) {
+  const membership = await prisma.roomMembership.findUnique({
+    where: { userId_roomId: { userId, roomId } },
+  });
+  if (!membership) throw new ApiError(403, "この部屋に参加していません");
+}
+
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const user = await requireUser();
-    const roomId = Number(params.id);
+    const roomId = parseId(params.id);
+    await assertMember(user.id, roomId);
 
     const [messages, blockedIds] = await Promise.all([
       prisma.message.findMany({
@@ -44,17 +52,10 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 
 const sendMessageSchema = z.object({ text: z.string().trim().min(1).max(1000) });
 
-async function assertMember(userId: number, roomId: number) {
-  const membership = await prisma.roomMembership.findUnique({
-    where: { userId_roomId: { userId, roomId } },
-  });
-  if (!membership) throw new ApiError(403, "この部屋に参加していません");
-}
-
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const user = await requireUser();
-    const roomId = Number(params.id);
+    const roomId = parseId(params.id);
     const room = await prisma.room.findUnique({ where: { id: roomId } });
     if (!room || room.status !== "APPROVED") {
       return NextResponse.json({ error: "部屋が見つかりません" }, { status: 404 });
