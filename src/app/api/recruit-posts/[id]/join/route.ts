@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireUser, parseId, ApiError, handleApiError } from "@/lib/api-helpers";
+import { getBlockedUserIds } from "@/lib/blocks";
 
 export async function POST(_req: Request, { params }: { params: { id: string } }) {
   try {
@@ -17,6 +18,11 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
       where: { userId_roomId: { userId: user.id, roomId: post.roomId } },
     });
     if (!membership) throw new ApiError(403, "この部屋に参加していません");
+
+    const blockedIds = await getBlockedUserIds(user.id);
+    if (blockedIds.has(post.createdById)) {
+      throw new ApiError(403, "ブロック中のユーザーの募集には参加できません");
+    }
 
     if (post._count.participants >= post.capacity) {
       throw new ApiError(409, "定員に達しています");

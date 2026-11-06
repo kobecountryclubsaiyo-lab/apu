@@ -3,26 +3,38 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireUser, parseId, ApiError, handleApiError } from "@/lib/api-helpers";
 import { MIN_RECRUIT_CAPACITY, MAX_RECRUIT_CAPACITY } from "@/lib/rules";
+import { getBlockedUserIds } from "@/lib/blocks";
 
 export async function GET(req: NextRequest) {
   try {
-    await requireUser();
+    const user = await requireUser();
     const roomId = parseId(req.nextUrl.searchParams.get("roomId") ?? "");
 
-    const posts = await prisma.recruitPost.findMany({
-      where: { roomId },
-      orderBy: { createdAt: "desc" },
-      include: { createdBy: true, _count: { select: { participants: true } } },
-    });
+    const [posts, blockedIds] = await Promise.all([
+      prisma.recruitPost.findMany({
+        where: { roomId },
+        orderBy: { createdAt: "desc" },
+        include: {
+          createdBy: true,
+          _count: { select: { participants: true } },
+          participants: { where: { userId: user.id }, select: { userId: true } },
+        },
+      }),
+      getBlockedUserIds(user.id),
+    ]);
+
+    // ブロックした/された相手が主催する募集は表示しない（report-block-prototype.jsx）
+    const visible = posts.filter((p) => !blockedIds.has(p.createdById));
 
     return NextResponse.json({
-      posts: posts.map((p) => ({
+      posts: visible.map((p) => ({
         id: p.id,
         title: p.title,
         scheduledAt: p.scheduledAt,
         capacity: p.capacity,
         offlineMeet: p.offlineMeet,
         participantCount: p._count.participants,
+        joinedByMe: p.participants.length > 0,
         createdAt: p.createdAt,
         createdBy: {
           id: p.createdBy.id,

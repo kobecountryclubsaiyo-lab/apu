@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ChevronLeft, Users, Sparkles, ArrowRight, ArrowUp, MoreVertical } from "lucide-react";
 import { ICONS_BY_KEY, accentClass } from "@/components/theme-icons";
 import ReportBlockMenu from "@/components/ReportBlockMenu";
+import RecruitPostList from "@/components/RecruitPostList";
 import type { PublicUser } from "@/lib/serialize";
 
 const POLL_INTERVAL_MS = 4000;
@@ -142,6 +143,8 @@ export default function ChatRoom({
             </Link>
           </div>
         </div>
+
+        <RecruitPostList roomId={room.id} />
 
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3.5">
           {messages.map((m) => {
