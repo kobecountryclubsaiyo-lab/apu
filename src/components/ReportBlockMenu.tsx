@@ -169,7 +169,7 @@ export default function ReportBlockMenu({
             </button>
 
             <p className="text-[10.5px] leading-snug text-center text-stone">
-              通報は匿名で送信されます。運営スタッフが内容を確認します。
+              通報したことは、相手には知らされません。運営スタッフが内容を確認します。
             </p>
           </div>
           <div className="px-4 py-3.5 shrink-0" style={{ borderTop: "1px solid #DFD5BC" }}>
