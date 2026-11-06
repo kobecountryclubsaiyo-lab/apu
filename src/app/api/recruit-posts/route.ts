@@ -59,7 +59,7 @@ const createRecruitPostSchema = z.object({
   capacity: z.number().int().min(MIN_RECRUIT_CAPACITY).max(MAX_RECRUIT_CAPACITY),
   offlineMeet: z.boolean(),
   guidelineAgreed: z.literal(true, {
-    errorMap: () => ({ message: "安全ガイドラインへの同意が必要です" }),
+    message: "安全ガイドラインへの同意が必要です",
   }),
 });
 

@@ -5,7 +5,8 @@ import { requireAdmin, parseId, handleApiError } from "@/lib/api-helpers";
 
 const patchSchema = z.object({ status: z.enum(["REVIEWED", "DISMISSED"]) });
 
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     await requireAdmin();
     const reportId = parseId(params.id);

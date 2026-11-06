@@ -3,7 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { publicUser } from "@/lib/serialize";
 
-export async function GET(_req: Request, { params }: { params: { id: string } }) {
+export async function GET(_req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const roomId = Number(params.id);
   if (!Number.isInteger(roomId)) {
     return NextResponse.json({ error: "不正なIDです" }, { status: 400 });

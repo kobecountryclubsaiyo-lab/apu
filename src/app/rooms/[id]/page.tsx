@@ -4,7 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { publicUser } from "@/lib/serialize";
 import ChatRoom from "@/components/ChatRoom";
 
-export default async function RoomPage({ params }: { params: { id: string } }) {
+export default async function RoomPage(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 

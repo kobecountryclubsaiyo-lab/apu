@@ -36,6 +36,9 @@ export default function RecruitPostList({ roomId }: { roomId: number }) {
   }
 
   useEffect(() => {
+    // Fetch-on-mount + poll pattern: the setState happens asynchronously
+    // after the fetch resolves, not synchronously during the effect.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
     const interval = setInterval(load, POLL_INTERVAL_MS);
     return () => clearInterval(interval);

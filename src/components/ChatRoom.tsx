@@ -49,6 +49,9 @@ export default function ChatRoom({
   }
 
   useEffect(() => {
+    // Fetch-on-mount + poll pattern: the setState happens asynchronously
+    // after the fetch resolves, not synchronously during the effect.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadMessages();
     loadSummary();
     const interval = setInterval(loadMessages, POLL_INTERVAL_MS);

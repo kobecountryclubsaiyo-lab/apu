@@ -5,7 +5,8 @@ import { publicUser } from "@/lib/serialize";
 import RecruitPostForm from "@/components/RecruitPostForm";
 import { REACTION_LABELS, type ReactionType } from "@/lib/types";
 
-export default async function NewRecruitPostPage({ params }: { params: { id: string } }) {
+export default async function NewRecruitPostPage(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 

@@ -13,7 +13,8 @@ async function assertMember(userId: number, roomId: number) {
   if (!membership) throw new ApiError(403, "この部屋に参加していません");
 }
 
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     const user = await requireUser();
     const roomId = parseId(params.id);
@@ -52,7 +53,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 
 const sendMessageSchema = z.object({ text: z.string().trim().min(1).max(1000) });
 
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     const user = await requireUser();
     const roomId = parseId(params.id);

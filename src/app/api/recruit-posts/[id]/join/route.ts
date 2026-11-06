@@ -3,7 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { requireUser, parseId, ApiError, handleApiError } from "@/lib/api-helpers";
 import { getBlockedUserIds } from "@/lib/blocks";
 
-export async function POST(_req: Request, { params }: { params: { id: string } }) {
+export async function POST(_req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     const user = await requireUser();
     const recruitPostId = parseId(params.id);

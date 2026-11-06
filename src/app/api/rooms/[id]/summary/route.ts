@@ -16,7 +16,8 @@ async function assertMember(userId: number, roomId: number) {
   if (!membership) throw new ApiError(403, "この部屋に参加していません");
 }
 
-export async function GET(_req: Request, { params }: { params: { id: string } }) {
+export async function GET(_req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     const user = await requireUser();
     const roomId = parseId(params.id);
@@ -33,7 +34,8 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 }
 
 /** AIが話題を整理し直す（app-specification.md 2章・7章「AIが話題を整理」機能） */
-export async function POST(_req: Request, { params }: { params: { id: string } }) {
+export async function POST(_req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     const user = await requireUser();
     const roomId = parseId(params.id);

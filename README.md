@@ -7,7 +7,7 @@
 
 | 領域 | 選定 | 理由 |
 |---|---|---|
-| フレームワーク | Next.js 14 (App Router) + TypeScript | フロント・API・SSRを1つのプロジェクトで完結でき、プロトタイプのReact/Tailwindコードをほぼそのまま活かせる |
+| フレームワーク | Next.js 16 (App Router) + React 19 + TypeScript | フロント・API・SSRを1つのプロジェクトで完結でき、プロトタイプのReact/Tailwindコードをほぼそのまま活かせる |
 | スタイリング | Tailwind CSS | プロトタイプが最初からTailwindクラスで書かれていたため |
 | DB / ORM | PostgreSQL + Prisma | Vercel Postgres・Neon・Supabase・Railway など主要ホスティング先がすべて対応しており、本番想定でそのまま使える |
 | 認証 | 自前実装（bcryptjs + jose製JWTのCookieセッション） | 外部OAuthプロバイダを増やさず、最小構成でログイン機能を用意 |
