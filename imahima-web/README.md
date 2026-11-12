@@ -30,6 +30,11 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    function isMember(roomCode) {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/members/$(roomCode + '_' + request.auth.uid));
+    }
+
     match /presence/{docId} {
       allow read: if true;
       allow write: if request.resource.data.roomCode is string
@@ -38,7 +43,9 @@ service cloud.firestore {
         && (
           // 「サンプルの友達を置く」機能用: doc IDに _demo- を含むものだけは認証なしでも許可
           docId.matches('.*_demo-.*')
-          || (request.auth != null && request.resource.data.userId == request.auth.uid)
+          || (request.auth != null
+              && request.resource.data.userId == request.auth.uid
+              && isMember(request.resource.data.roomCode))
         );
     }
     match /invites/{inviteId} {
@@ -53,11 +60,46 @@ service cloud.firestore {
         && request.resource.data.fromUserId == resource.data.fromUserId
         && request.resource.data.toUserId == resource.data.toUserId;
     }
+    match /rooms/{roomCode} {
+      allow read: if true;
+      // そのコードがまだ誰にも「作成」されていない場合だけ、誰でも作成者になれる
+      allow create: if request.auth != null
+        && request.resource.data.createdBy == request.auth.uid;
+      allow update, delete: if false;
+    }
+    match /members/{docId} {
+      allow read: if true;
+      allow create: if request.auth != null
+        && request.resource.data.roomCode is string
+        && request.resource.data.userId is string
+        && docId == request.resource.data.roomCode + '_' + request.resource.data.userId
+        && (
+          // そのグループがまだ「作成」されていない(=新規グループコード)なら、
+          // 自分自身を最初のメンバーとして自己登録できる
+          (request.resource.data.userId == request.auth.uid
+            && !exists(/databases/$(database)/documents/rooms/$(request.resource.data.roomCode)))
+          // それ以外は、既存メンバーだけが(自分・他人問わず)メンバーを追加できる
+          || isMember(request.resource.data.roomCode)
+        );
+      allow update, delete: if false;
+    }
+    match /joinRequests/{docId} {
+      allow read: if true;
+      allow create: if request.auth != null
+        && request.resource.data.roomCode is string
+        && request.resource.data.userId == request.auth.uid
+        && docId == request.resource.data.roomCode + '_' + request.resource.data.userId
+        && request.resource.data.status == "pending";
+      // 既存メンバーだけが status を approved/declined に変更できる
+      allow update: if isMember(resource.data.roomCode)
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.roomCode == resource.data.roomCode;
+    }
   }
 }
 ```
 
-※ 自分の位置情報・受け取った誘いへの応答は、匿名認証のuidと一致する人にしか書き換え・削除できないようにしています。とはいえログイン画面自体はないアプリなので、荒らし対策としては最低限です。友達内での利用にとどめてください。
+※ 自分の位置情報・受け取った誘いへの応答は、匿名認証のuidと一致する人にしか書き換え・削除できないようにしています。グループへの新規参加は、既存メンバーの誰かが承認するまで位置情報を公開できない仕組みになっています。とはいえログイン画面自体はないアプリなので、荒らし対策としては最低限です。友達内での利用にとどめてください。
 
 ## 5. ウェブアプリを追加してAPIキーを取得する
 

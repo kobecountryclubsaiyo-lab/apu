@@ -132,3 +132,117 @@ export async function respondInvite(inviteId, status) {
     await updateDoc(doc(db, "invites", inviteId), { status, read: true });
   } catch (e) {}
 }
+
+// members コレクション: 承認済みのグループ参加者。ドキュメントIDは `${roomCode}_${userId}`
+const memberDocRef = (roomCode, userId) => doc(db, "members", `${roomCode}_${userId}`);
+
+export async function getMembership(roomCode, userId) {
+  try {
+    const snap = await getDoc(memberDocRef(roomCode, userId));
+    return snap.exists() ? snap.data() : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// rooms コレクション: そのグループコードが「作成済み」であることを示すマーカー。
+// これが存在しないグループコードだけ、誰でも最初のメンバーとして自己登録できる
+// (作成直後の、新しく生成したランダムコード用。以降は承認フロー必須)。
+const roomDocRef = (roomCode) => doc(db, "rooms", roomCode);
+
+// グループを新しく作る: 作成者は自分自身を最初のメンバーとして登録し、
+// 直後にroomsマーカーを作ってこのコードを「作成済み」にする(以降は承認制になる)
+export async function createRoomAsOwner(roomCode, me) {
+  try {
+    await setDoc(memberDocRef(roomCode, me.userId), {
+      roomCode,
+      userId: me.userId,
+      name: me.name,
+      avatar: me.avatar,
+      color: me.color,
+      joinedAt: Date.now(),
+      approvedBy: me.userId, // 自分自身(作成者)
+    });
+    await setDoc(roomDocRef(roomCode), {
+      roomCode,
+      createdBy: me.userId,
+      createdAt: Date.now(),
+    });
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+// joinRequests コレクション: 参加申請。ドキュメントIDは `${roomCode}_${userId}`(1人1申請)
+const joinRequestDocRef = (roomCode, userId) => doc(db, "joinRequests", `${roomCode}_${userId}`);
+
+export async function requestToJoin(roomCode, me) {
+  try {
+    await setDoc(joinRequestDocRef(roomCode, me.userId), {
+      roomCode,
+      userId: me.userId,
+      name: me.name,
+      avatar: me.avatar,
+      color: me.color,
+      status: "pending", // pending | approved | declined
+      requestedAt: Date.now(),
+    });
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+export async function getMyJoinRequest(roomCode, userId) {
+  try {
+    const snap = await getDoc(joinRequestDocRef(roomCode, userId));
+    return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+export async function listPendingJoinRequests(roomCode) {
+  try {
+    const q = query(
+      collection(db, "joinRequests"),
+      where("roomCode", "==", roomCode),
+      where("status", "==", "pending")
+    );
+    const snap = await getDocs(q);
+    return snap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (a.requestedAt || 0) - (b.requestedAt || 0));
+  } catch (e) {
+    return [];
+  }
+}
+
+// 既存メンバーの誰でも承認できる(作成者1人に権限を集中させない)
+export async function approveJoinRequest(request, approverUid) {
+  try {
+    await setDoc(memberDocRef(request.roomCode, request.userId), {
+      roomCode: request.roomCode,
+      userId: request.userId,
+      name: request.name,
+      avatar: request.avatar,
+      color: request.color,
+      joinedAt: Date.now(),
+      approvedBy: approverUid,
+    });
+    await updateDoc(joinRequestDocRef(request.roomCode, request.userId), { status: "approved" });
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+export async function declineJoinRequest(request) {
+  try {
+    await updateDoc(joinRequestDocRef(request.roomCode, request.userId), { status: "declined" });
+    return true;
+  } catch (e) {
+    return false;
+  }
+}

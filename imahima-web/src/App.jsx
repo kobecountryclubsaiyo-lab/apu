@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { Map as MapIcon, List, X, Send, Users, Clock, RefreshCw, Pencil, MapPin, Copy, Bell, Check, WifiOff, Share2 } from "lucide-react";
+import { Map as MapIcon, List, X, Send, Users, Clock, RefreshCw, Pencil, MapPin, Copy, Bell, Check, WifiOff, Share2, UserPlus } from "lucide-react";
 import {
   auth,
   onAuthStateChanged,
@@ -12,6 +12,13 @@ import {
   listMyInvites,
   markInviteRead,
   respondInvite,
+  getMembership,
+  createRoomAsOwner,
+  requestToJoin,
+  getMyJoinRequest,
+  listPendingJoinRequests,
+  approveJoinRequest,
+  declineJoinRequest,
 } from "./firebase.js";
 import MapView from "./MapView.jsx";
 
@@ -106,6 +113,9 @@ export default function App() {
   const [selectedFriend, setSelectedFriend] = useState(null);
   const [invites, setInvites] = useState([]);
   const [showInvites, setShowInvites] = useState(false);
+  const [membership, setMembership] = useState("unknown"); // unknown | member | pending | declined
+  const [joinRequests, setJoinRequests] = useState([]);
+  const [showJoinRequests, setShowJoinRequests] = useState(false);
   const [toast, setToast] = useState(null);
   const [, forceTick] = useState(0);
 
@@ -120,6 +130,7 @@ export default function App() {
   const meRef = useRef(null); // { name, avatar, color, roomCode, userId } 実行時に合成
   const himaRef = useRef(false);
   const resumeCheckedRef = useRef(false);
+  const membershipRef = useRef("unknown");
 
   useEffect(() => { selfCoordsRef.current = selfCoords; }, [selfCoords]);
   useEffect(() => { messageRef.current = message; }, [message]);
@@ -180,6 +191,42 @@ export default function App() {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [me, firebaseUid]);
+
+  // グループの承認状態(member/pending/declined)を確認・監視する
+  useEffect(() => {
+    if (!me || !firebaseUid || !me.roomCode) return;
+    let stopped = false;
+    const check = async () => {
+      const mem = await getMembership(me.roomCode, firebaseUid);
+      if (stopped) return;
+      if (mem) {
+        if (membershipRef.current !== "member") setToast("グループに参加できたよ! 🎉");
+        membershipRef.current = "member";
+        setMembership("member");
+        return;
+      }
+      const req = await getMyJoinRequest(me.roomCode, firebaseUid);
+      if (stopped) return;
+      const status = req?.status === "declined" ? "declined" : "pending";
+      membershipRef.current = status;
+      setMembership(status);
+    };
+    check();
+    const t = setInterval(check, 4000);
+    return () => { stopped = true; clearInterval(t); };
+  }, [me, firebaseUid]);
+
+  // 自分が既存メンバーである部屋の、参加承認待ちリクエストをポーリング
+  useEffect(() => {
+    if (!me || !firebaseUid || !me.roomCode || membership !== "member") return;
+    const poll = async () => {
+      const list = await listPendingJoinRequests(me.roomCode);
+      setJoinRequests(list);
+    };
+    poll();
+    const t = setInterval(poll, POLL_MS);
+    return () => clearInterval(t);
+  }, [me, firebaseUid, membership]);
 
   useEffect(() => {
     const t = setInterval(() => forceTick((n) => n + 1), 15000);
@@ -242,6 +289,17 @@ export default function App() {
     setDraftRoomCode("");
   };
 
+  // 既にメンバーならそのまま、そうでなければ参加リクエストを出す(なければ作る)
+  const ensureMembership = async (code, nextMeNoUid) => {
+    const existing = await getMembership(code, firebaseUid);
+    if (existing) return "member";
+    const existingRequest = await getMyJoinRequest(code, firebaseUid);
+    if (!existingRequest || existingRequest.status !== "pending") {
+      await requestToJoin(code, { ...nextMeNoUid, userId: firebaseUid });
+    }
+    return "pending";
+  };
+
   const finishOnboarding = async () => {
     const code = draftRoomCode.trim().toUpperCase();
     if (!code || code.length < 4) {
@@ -254,12 +312,30 @@ export default function App() {
       color: AVATAR_COLORS[draftAvatarIdx],
       roomCode: code,
     };
+
+    if (draftRoomMode === "create") {
+      const ok = await createRoomAsOwner(code, { ...nextMe, userId: firebaseUid });
+      if (!ok) {
+        setToast("グループの作成に失敗しちゃった。もう一度試してね");
+        return;
+      }
+      await saveMe(nextMe);
+      membershipRef.current = "member";
+      setMembership("member");
+      setShowOnboarding(false);
+      setToast(`グループを作ったよ。コード「${code}」を友達に送ってね`);
+      return;
+    }
+
     await saveMe(nextMe);
+    const status = await ensureMembership(code, nextMe);
+    membershipRef.current = status;
+    setMembership(status);
     setShowOnboarding(false);
     setToast(
-      draftRoomMode === "create"
-        ? `グループを作ったよ。コード「${code}」を友達に送ってね`
-        : `「${code}」のグループに参加したよ`
+      status === "member"
+        ? `「${code}」のグループに参加したよ`
+        : `「${code}」への参加をリクエストしたよ。メンバーの承認を待ってね`
     );
   };
 
@@ -300,12 +376,24 @@ export default function App() {
       setToast("コードを確認してね");
       return;
     }
+    if (!firebaseUid) {
+      setToast("認証の準備中だよ。少し待ってからもう一度試してね");
+      return;
+    }
     if (himaRef.current) await stopHima();
     const nextMe = { ...meRef.current, roomCode: code };
     delete nextMe.userId; // userIdはlocalStorageに保存しない(常にFirebase認証由来)
     await saveMe(nextMe);
+    const status = await ensureMembership(code, nextMe);
+    membershipRef.current = status;
+    setMembership(status);
     setSwitchCodeInput("");
-    setToast(`「${code}」のグループに切り替えたよ`);
+    setShowEdit(false);
+    setToast(
+      status === "member"
+        ? `「${code}」のグループに切り替えたよ`
+        : `「${code}」への参加をリクエストしたよ。メンバーの承認を待ってね`
+    );
   };
 
   const broadcastStatus = async (coords) => {
@@ -393,6 +481,14 @@ export default function App() {
     markAction();
     if (authState !== "ready") {
       setToast("認証の準備中だよ。少し待ってからもう一度試してね");
+      return;
+    }
+    if (membership !== "member") {
+      setToast(
+        membership === "declined"
+          ? "このグループへの参加が見送られたみたい。プロフィール編集から別のコードを試してね"
+          : "グループの承認待ちだよ。既存メンバーが承認すると使えるようになるよ"
+      );
       return;
     }
     if (!("geolocation" in navigator)) {
@@ -534,6 +630,25 @@ export default function App() {
     setToast(status === "accepted" ? `${invite.fromName}に「のった!」を伝えたよ 🙌` : `${invite.fromName}に伝えたよ`);
   };
 
+  const openJoinRequests = () => {
+    markAction();
+    setShowJoinRequests(true);
+  };
+
+  const handleApproveJoin = async (request) => {
+    markAction();
+    setJoinRequests((prev) => prev.filter((r) => r.id !== request.id));
+    const ok = await approveJoinRequest(request, firebaseUid);
+    setToast(ok ? `${request.name}を承認したよ 🎉` : "承認に失敗しちゃった…もう一度試してね");
+  };
+
+  const handleDeclineJoin = async (request) => {
+    markAction();
+    setJoinRequests((prev) => prev.filter((r) => r.id !== request.id));
+    await declineJoinRequest(request);
+    setToast(`${request.name}の参加を見送ったよ`);
+  };
+
   return (
     <div className="min-h-screen w-full flex justify-center" style={{ backgroundColor: "#E9E4D8" }} onClick={markAction}>
       <style>{`
@@ -581,6 +696,17 @@ export default function App() {
                 </span>
               )}
             </button>
+            {membership === "member" && joinRequests.length > 0 && (
+              <button onClick={openJoinRequests} className="relative p-2 rounded-full" style={{ backgroundColor: "#332942" }}>
+                <UserPlus size={13} color={DUST} />
+                <span
+                  className="absolute -top-1 -right-1 flex items-center justify-center rounded-full zen-kaku"
+                  style={{ width: 15, height: 15, backgroundColor: CORAL, color: CREAM, fontSize: 9, fontWeight: 700 }}
+                >
+                  {joinRequests.length}
+                </span>
+              </button>
+            )}
             <button onClick={() => { markAction(); setFriends((f) => [...f]); }} className="p-2 rounded-full" style={{ backgroundColor: "#332942" }}>
               <RefreshCw size={13} color={DUST} />
             </button>
@@ -618,10 +744,23 @@ export default function App() {
         <div className="px-5 -mt-1 pt-4 pb-3" style={{ backgroundColor: INK }}>
           <button
             onClick={handleToggle}
+            disabled={membership === "pending" || membership === "declined"}
             className={`w-full rounded-2xl py-3.5 flex items-center justify-center gap-2 zen-maru text-lg font-bold transition-all ${hima ? "glow-anim" : ""}`}
-            style={{ backgroundColor: hima ? CORAL : CREAM, color: hima ? CREAM : INK, border: hima ? "none" : `2px solid ${DUST}` }}
+            style={{
+              backgroundColor: membership !== "member" ? DUST : hima ? CORAL : CREAM,
+              color: hima || membership !== "member" ? CREAM : INK,
+              border: hima || membership !== "member" ? "none" : `2px solid ${DUST}`,
+            }}
           >
-            {geoStatus === "requesting" ? "位置情報を取得中…" : hima ? "今ヒマ！📣 位置を公開中" : "今日はヒマじゃない 😴"}
+            {geoStatus === "requesting"
+              ? "位置情報を取得中…"
+              : membership === "pending"
+              ? "承認待ち… ⏳"
+              : membership === "declined"
+              ? "参加できません"
+              : hima
+              ? "今ヒマ！📣 位置を公開中"
+              : "今日はヒマじゃない 😴"}
           </button>
 
           {hima && (
@@ -645,6 +784,19 @@ export default function App() {
             <div className="mt-2 flex items-center justify-between px-3 py-2 rounded-xl" style={{ backgroundColor: "#4a2f33" }}>
               <span className="zen-kaku text-[11px]" style={{ color: "#FFD3D3" }}>📍 位置情報の許可が必要だよ</span>
               <button onClick={startHima} className="zen-kaku text-[11px] font-bold px-2 py-1 rounded-full" style={{ backgroundColor: CORAL, color: CREAM }}>許可する</button>
+            </div>
+          )}
+
+          {membership === "pending" && (
+            <div className="mt-2 flex items-center px-3 py-2 rounded-xl" style={{ backgroundColor: "#4a2f33" }}>
+              <span className="zen-kaku text-[11px]" style={{ color: "#FFD3D3" }}>⏳ グループの既存メンバーが承認するのを待っているよ</span>
+            </div>
+          )}
+
+          {membership === "declined" && (
+            <div className="mt-2 flex items-center justify-between px-3 py-2 rounded-xl" style={{ backgroundColor: "#4a2f33" }}>
+              <span className="zen-kaku text-[11px]" style={{ color: "#FFD3D3" }}>参加が見送られたみたい</span>
+              <button onClick={openEdit} className="zen-kaku text-[11px] font-bold px-2 py-1 rounded-full" style={{ backgroundColor: CORAL, color: CREAM }}>コードを変える</button>
             </div>
           )}
 
@@ -751,7 +903,10 @@ export default function App() {
                       <p className="zen-kaku text-[10px] mt-1" style={{ color: DUST }}>あとで友達にこのコードを送ってね</p>
                     </div>
                   ) : (
-                    <input value={draftRoomCode} onChange={(e) => setDraftRoomCode(e.target.value.toUpperCase())} maxLength={6} placeholder="例: A3F9K2" className="zen-kaku w-full px-4 py-2.5 rounded-xl text-sm outline-none mb-5 text-center" style={{ backgroundColor: "#fff", border: `1.5px solid ${DUST}`, color: INK, letterSpacing: 2 }} />
+                    <>
+                      <input value={draftRoomCode} onChange={(e) => setDraftRoomCode(e.target.value.toUpperCase())} maxLength={6} placeholder="例: A3F9K2" className="zen-kaku w-full px-4 py-2.5 rounded-xl text-sm outline-none mb-2 text-center" style={{ backgroundColor: "#fff", border: `1.5px solid ${DUST}`, color: INK, letterSpacing: 2 }} />
+                      <p className="zen-kaku text-[10px] mb-5 text-center" style={{ color: DUST }}>参加には既存メンバーの承認が必要だよ</p>
+                    </>
                   )}
                   <button
                     onClick={authState === "failed" ? retryAuth : finishOnboarding}
@@ -762,7 +917,11 @@ export default function App() {
                       color: CREAM,
                     }}
                   >
-                    {authState === "failed" ? "認証エラー(タップで再試行)" : authState === "ready" ? "はじめる" : "認証中…"}
+                    {authState === "failed"
+                      ? "認証エラー(タップで再試行)"
+                      : authState === "ready"
+                      ? (draftRoomMode === "join" ? "参加をリクエスト" : "はじめる")
+                      : "認証中…"}
                   </button>
                   {authState === "failed" && window.__authError && (
                     <p className="zen-kaku mt-2 text-center break-all" style={{ fontSize: 10, color: "#B0473F" }}>{window.__authError}</p>
@@ -855,6 +1014,43 @@ export default function App() {
                         </button>
                         <button onClick={() => handleRespondInvite(inv, "declined")} className="flex-1 py-2 rounded-xl zen-kaku text-xs font-bold" style={{ backgroundColor: "#fff", color: INK, border: `1.5px solid ${DUST}` }}>
                           またね
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Join requests (approvers only) */}
+        {showJoinRequests && (
+          <div className="fixed inset-0 z-40 flex items-end justify-center" style={{ maxWidth: 430, margin: "0 auto" }}>
+            <div className="absolute inset-0" style={{ backgroundColor: "rgba(36,27,47,0.5)" }} onClick={() => setShowJoinRequests(false)} />
+            <div className="relative w-full sheet-anim rounded-t-3xl p-5 pb-7" style={{ backgroundColor: CREAM, maxWidth: 430, maxHeight: "75vh", overflowY: "auto", border: `3px solid ${INK}`, borderBottom: "none" }}>
+              <button onClick={() => setShowJoinRequests(false)} className="absolute top-4 right-4 rounded-full p-1.5" style={{ backgroundColor: "#EFEAE0" }}><X size={16} color={INK} /></button>
+              <h2 className="zen-maru text-xl mb-4" style={{ color: INK }}>参加リクエスト 🙋</h2>
+              {joinRequests.length === 0 ? (
+                <p className="zen-kaku text-sm text-center py-6" style={{ color: DUST }}>今のところリクエストはないよ</p>
+              ) : (
+                <div className="flex flex-col gap-2.5">
+                  {joinRequests.map((r) => (
+                    <div key={r.id} className="p-3 rounded-2xl" style={{ backgroundColor: "#EFEAE0", border: `2px solid ${r.color || DUST}` }}>
+                      <div className="flex items-center gap-2.5 mb-2">
+                        <div className="rounded-xl flex items-center justify-center text-xl" style={{ width: 40, height: 40, backgroundColor: "#fff" }}>{r.avatar}</div>
+                        <div className="flex-1 min-w-0">
+                          <p className="zen-maru font-bold text-sm" style={{ color: INK }}>{r.name}</p>
+                          <p className="zen-kaku text-xs" style={{ color: "#5b5468" }}>グループへの参加を希望</p>
+                        </div>
+                        <span className="zen-kaku text-[10px] shrink-0" style={{ color: DUST }}>{fmtAgo(r.requestedAt)}</span>
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => handleApproveJoin(r)} className="flex-1 flex items-center justify-center gap-1 py-2 rounded-xl zen-kaku text-xs font-bold" style={{ backgroundColor: TEAL, color: CREAM }}>
+                          <Check size={13} /> 承認する
+                        </button>
+                        <button onClick={() => handleDeclineJoin(r)} className="flex-1 py-2 rounded-xl zen-kaku text-xs font-bold" style={{ backgroundColor: "#fff", color: INK, border: `1.5px solid ${DUST}` }}>
+                          見送る
                         </button>
                       </div>
                     </div>
