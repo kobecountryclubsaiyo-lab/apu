@@ -15,12 +15,12 @@ import {
 } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyDNU6TFln82cdQ_hKyLw4q0f1PwuuXqwik",
-  authDomain: "imahima-adb1a.firebaseapp.com",
-  projectId: "imahima-adb1a",
-  storageBucket: "imahima-adb1a.firebasestorage.app",
-  messagingSenderId: "56241698411",
-  appId: "1:56241698411:web:3999f0a77e597951c8e32e",
+  apiKey: "AIzaSyADuv26c7V8zYxyCliN_IcUZNJf6qOwaao",
+  authDomain: "imahima-4154b.firebaseapp.com",
+  projectId: "imahima-4154b",
+  storageBucket: "imahima-4154b.firebasestorage.app",
+  messagingSenderId: "241851487584",
+  appId: "1:241851487584:web:e63fa613caaedc44137a05",
 };
 
 const app = initializeApp(firebaseConfig);
