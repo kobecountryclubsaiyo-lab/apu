@@ -20,7 +20,7 @@ const firebaseConfig = {
   projectId: "imahima-4154b",
   storageBucket: "imahima-4154b.firebasestorage.app",
   messagingSenderId: "241851487584",
-  appId: "1:241851487584:web:e63fa613caaedc44137a05",
+  appId: "1:241851487584:web:42a73b20642d1577137a05",
 };
 
 const app = initializeApp(firebaseConfig);
