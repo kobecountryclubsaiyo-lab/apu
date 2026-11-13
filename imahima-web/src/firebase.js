@@ -15,7 +15,7 @@ import {
 } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyADuv26c7V8zYxyCliN_IcUZNJf6qOwaao",
+  apiKey: "AIzaSyADuv26c7V8zYxiCliN_IcUZNJf6qOwaao",
   authDomain: "imahima-4154b.firebaseapp.com",
   projectId: "imahima-4154b",
   storageBucket: "imahima-4154b.firebasestorage.app",
