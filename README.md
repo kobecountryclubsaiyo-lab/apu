@@ -84,6 +84,21 @@ docs/
 
 以降の変更は、mainブランチにマージ→Vercelが自動でビルド・マイグレーション適用・デプロイまで行います。
 
+## 本番デプロイ（Netlify を例に）
+
+既にNetlifyアカウントがある場合、新規サインアップなしで進められる手順です。`netlify.toml` にビルド設定を同梱済み。
+
+1. **サイトを作成**: Netlifyダッシュボード → 「Add new site」→「Import an existing project」→「Deploy with GitHub」→ このリポジトリ（`claude/implementation-guidance-3c7ut9` ブランチ）を選択
+2. **DBを用意する**: Netlifyのサイト設定内に Postgres（Neon連携）の拡張機能があればそれを使う。なければ [Neon](https://neon.tech) 等で別途無料のPostgresを用意し、接続文字列を控える
+3. **環境変数を設定**（Site settings → Environment variables）
+   - `DATABASE_URL` … 手順2の接続文字列
+   - `SESSION_SECRET` … `openssl rand -base64 32` などで生成したランダムな文字列
+   - `ANTHROPIC_API_KEY` … AIによる話題整理を有効にする場合のみ
+4. **デプロイ** → `netlify.toml` の `command` が `prisma generate && prisma migrate deploy && next build` を実行し、初回デプロイ時にマイグレーションを本番DBへ適用する
+5. 初回のみ、ローカルから本番DBに向けて `npm run db:seed`（`.env` の `DATABASE_URL` を本番のものに一時的に差し替えて実行）し、テーマなどの初期データを投入する
+
+Prismaのクエリエンジンは `prisma/schema.prisma` の `binaryTargets` で Netlify/Vercel のサーバーレス実行環境（AWS Lambda ベース）向けのバイナリも生成するよう設定済み。
+
 ## 今後の検討事項（未着手）
 
 - 本人確認（仕様書5章：オフ会専用機能を作る場合に再検討）
